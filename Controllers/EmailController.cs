@@ -1,44 +1,31 @@
+using System.Net.Mail;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using PoepleDirectoryApplication.Api.Models;
 using PoepleDirectoryApplication.Api.Providers;
+namespace PoepleDirectoryApplication.Api.Controllers;
 
-namespace PoepleDirectoryApplication.Api.Controllers
+[ApiController, Authorize, EnableRateLimiting("email"), Route("api/email")]
+public sealed class EmailController(IEmailProvider emailProvider, ILogger<EmailController> logger) : ControllerBase
 {
-    [ApiController]
-    [Route("api/email")]
-    public class EmailController : ControllerBase
+    [HttpPost]
+    public async Task<IActionResult> SendEmail(EmailRequest request, CancellationToken cancellationToken)
     {
-
-        private readonly ILogger<EmailController> _logger;
-        private readonly IEmailProvider _emailProvider;
-
-        public EmailController(IEmailProvider emailProvider, ILogger<EmailController> logger)
+        try
         {
-            _emailProvider = emailProvider;
-            _logger = logger;
+            await emailProvider.SendMailAsync(new MailData { EmailSubject = request.Subject.Trim(), EmailBody = request.Body }, cancellationToken);
+            return Ok(new { message = "Email sent successfully." });
         }
-
-        [HttpPost(Name = "send")]
-        public IActionResult SendEmail(string subject, string body)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            try
-            {
-                var mailData = new MailData
-                {
-                    EmailBody = body,
-                    EmailSubject = subject,
-                };
-
-                if (_emailProvider.SendMail(mailData))
-                    return Ok("Email sent successfully.");
-
-                return NoContent();
-            }
-            catch (Exception ex)
-            {
-                // TODO: create a custom exception class maybe
-                throw new Exception(ex.Message);
-            }
+            logger.LogWarning("SMTP delivery timed out.");
+            return Problem(statusCode: 503, title: "Email delivery timed out.");
+        }
+        catch (SmtpException ex)
+        {
+            logger.LogError(ex, "SMTP delivery failed.");
+            return Problem(statusCode: 502, title: "Email delivery failed.");
         }
     }
 }
