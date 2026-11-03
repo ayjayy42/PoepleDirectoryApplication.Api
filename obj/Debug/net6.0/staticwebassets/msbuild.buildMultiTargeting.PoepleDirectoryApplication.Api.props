@@ -1,3 +1,0 @@
-﻿<Project>
-  <Import Project="..\build\PoepleDirectoryApplication.Api.props" />
-</Project>
